@@ -3,25 +3,8 @@ node_modules/
 
 # Build artifacts
 web-ext-artifacts/
+*.zip
+.freebuff/
 
 # AMO submission files (private)
-amo/
-
-# IDE/Editor
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-npm-debug.log*
-
-# Testing
-coverage/
-
 amo/

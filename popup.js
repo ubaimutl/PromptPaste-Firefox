@@ -3,6 +3,7 @@ import {enabledActions, getSettings} from './shared.js';
 const actionsRoot = document.querySelector('#actions');
 const status = document.querySelector('#status');
 document.querySelector('#settings').addEventListener('click', () => browser.runtime.openOptionsPage());
+document.querySelector('#history').addEventListener('click', () => browser.tabs.create({url: browser.runtime.getURL('history.html')}));
 
 const settings = await getSettings();
 const builtInActions = [

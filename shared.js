@@ -39,7 +39,7 @@ export const DEFAULTS = {
   provider: 'groq',
   ollamaUrl: 'http://127.0.0.1:11434',
   models: {
-    ollama: 'qwen3:4b', groq: 'openai/gpt-oss-20b',
+    ollama: 'qwen2.5-coder:1.5b', groq: 'openai/gpt-oss-20b',
     gemini: 'gemini-3.5-flash-lite', openrouter: 'openrouter/free',
     cerebras: 'gpt-oss-120b', openai: 'gpt-4.1-mini',
     vercel: 'openai/gpt-5.4-mini',
@@ -55,15 +55,23 @@ export const DEFAULTS = {
   customActions: DEFAULT_ACTIONS,
   previewResults: true,
   selectionTrigger: true,
+  // History is opt-in because results may contain private page content.
+  historyEnabled: false,
+  history: [],
+  historyLimit: 50,
+  feedbackPlacement: 'bottom',
   defaultActionsSeeded: false,
 };
 
 export async function getSettings() {
   const saved = await browser.storage.local.get(DEFAULTS);
+  const apiKeys = {...DEFAULTS.apiKeys, ...(saved.apiKeys || {})};
+  // Older builds briefly exposed an Ollama API-key field. Never surface or use that obsolete value.
+  delete apiKeys.ollama;
   return {
     ...DEFAULTS, ...saved,
     models: {...DEFAULTS.models, ...(saved.models || {})},
-    apiKeys: {...DEFAULTS.apiKeys, ...(saved.apiKeys || {})},
+    apiKeys,
     prompts: {...DEFAULTS.prompts, ...(saved.prompts || {})},
     variables: {...DEFAULTS.variables, ...(saved.variables || {})},
     promptOptions: {...DEFAULTS.promptOptions, ...(saved.promptOptions || {})},

@@ -8,9 +8,12 @@
 
   let snapshot = null;
   let toastTimer = null;
+  let toastAnchorListeners = null;
+  let pointerPosition = null;
   let triggerEnabled = true;
   let triggerTimer = null;
   let cachedActions = [];
+  let feedbackPlacement = 'bottom';
   let extensionAlive = true;
 
   globalThis.__promptPasteController = {dispose: disposeController};
@@ -33,7 +36,7 @@
     try { browser.runtime.onMessage.removeListener(handleRuntimeMessage); } catch { /* Context already invalidated. */ }
     removeTrigger();
     closeDialog();
-    document.getElementById('promptpaste-toast')?.remove();
+    removeToast();
   }
 
   globalThis.addEventListener('unhandledrejection', event => {
@@ -42,11 +45,12 @@
     disposeController();
   }, {signal: lifecycle.signal});
 
-  try {
-    browser.storage.local.get({selectionTrigger: true, customActions: []})
+   try {
+    browser.storage.local.get({selectionTrigger: true, customActions: [], feedbackPlacement: 'bottom'})
       .then(values => {
         if (!extensionAlive) return;
         triggerEnabled = values.selectionTrigger !== false;
+        feedbackPlacement = values.feedbackPlacement || 'bottom';
         cachedActions = enabledCustomActions(values.customActions);
         if (triggerEnabled) scheduleTriggerUpdate();
       })
@@ -59,6 +63,12 @@
   document.addEventListener('selectionchange', scheduleTriggerUpdate, {signal: lifecycle.signal});
   document.addEventListener('mouseup', scheduleTriggerUpdate, {signal: lifecycle.signal});
   document.addEventListener('keyup', scheduleTriggerUpdate, {signal: lifecycle.signal});
+  document.addEventListener('pointermove', event => {
+    pointerPosition = {x: event.clientX, y: event.clientY};
+  }, {passive: true, signal: lifecycle.signal});
+  document.addEventListener('pointerdown', event => {
+    pointerPosition = {x: event.clientX, y: event.clientY};
+  }, {passive: true, signal: lifecycle.signal});
   document.addEventListener('mousedown', event => {
     const trigger = document.getElementById('promptpaste-trigger');
     if (trigger && !event.composedPath().includes(trigger)) removeTrigger();
@@ -82,6 +92,7 @@
     if (message.type === 'SET_PAGE_CONFIG') {
       cachedActions = enabledCustomActions(message.customActions);
       triggerEnabled = message.selectionTrigger !== false;
+      feedbackPlacement = message.feedbackPlacement || 'bottom';
       if (triggerEnabled) scheduleTriggerUpdate(); else removeTrigger();
     }
   }
@@ -290,6 +301,7 @@
 
   function replaceSelection(text, label = 'Replaced') {
     if (!snapshot) { showToast('The original selection is no longer available.', 'error', 3500); return; }
+    const completedSelection = snapshot;
     if (snapshot.kind === 'control' && snapshot.element?.isConnected) {
       const element = snapshot.element;
       element.focus();
@@ -314,11 +326,11 @@
     }
     snapshot = null;
     closeDialog();
-    showToast(`${label}. Use the page’s undo command to revert.`);
+    showToast(`${label}. Use the page’s undo command to revert.`, 'normal', 1800, completedSelection);
   }
 
   function showResult(output) {
-    document.getElementById('promptpaste-toast')?.remove();
+    removeToast();
     clearTimeout(toastTimer);
     closeDialog();
     const host = document.createElement('div');
@@ -382,9 +394,8 @@
 
   function closeDialog() { document.getElementById('promptpaste-host')?.remove(); }
 
-  function showToast(message, type = 'normal', duration = 1800) {
-    document.getElementById('promptpaste-toast')?.remove();
-    clearTimeout(toastTimer);
+  function showToast(message, type = 'normal', duration = 1800, anchor = snapshot) {
+    removeToast();
     const host = document.createElement('div');
     host.id = 'promptpaste-toast';
     const root = host.attachShadow({mode: 'open'});
@@ -394,6 +405,65 @@
     if (type === 'working') toast.classList.add('working');
     toast.textContent = message;
     document.documentElement.append(host);
-    if (type !== 'working') toastTimer = setTimeout(() => host.remove(), duration);
+
+    const placement = feedbackPlacement;
+    const followsSelection = placement === 'pointer' && anchor;
+    const followsMouse = placement === 'mouse' && pointerPosition;
+    if (followsSelection || followsMouse) {
+      const onMove = event => {
+        if (event) pointerPosition = {x: event.clientX, y: event.clientY};
+        positionToast(host, anchor, placement);
+      };
+      positionToast(host, anchor, placement);
+      requestAnimationFrame(() => positionToast(host, anchor, placement));
+      if (followsSelection) {
+        window.addEventListener('scroll', onMove, {capture: true, passive: true});
+        window.addEventListener('resize', onMove);
+      }
+      if (followsMouse) window.addEventListener('pointermove', onMove, {passive: true});
+      toastAnchorListeners = () => {
+        window.removeEventListener('scroll', onMove, {capture: true});
+        window.removeEventListener('resize', onMove);
+        window.removeEventListener('pointermove', onMove);
+      };
+    }
+    if (type !== 'working') toastTimer = setTimeout(removeToast, duration);
+  }
+
+  function positionToast(host, selection, placement) {
+    const toast = host.shadowRoot?.querySelector('.toast');
+    if (!toast) return;
+    const toastRect = toast.getBoundingClientRect();
+    if (placement === 'mouse' && pointerPosition) {
+      const gap = 14;
+      let x = pointerPosition.x + gap;
+      let y = pointerPosition.y + gap;
+      if (x + toastRect.width > window.innerWidth - 6) x = pointerPosition.x - toastRect.width - gap;
+      if (y + toastRect.height > window.innerHeight - 6) y = pointerPosition.y - toastRect.height - gap;
+      setToastPosition(toast, x, y);
+      return;
+    }
+    const rect = selection && selectionRect(selection);
+    if (!rect) return;
+    const x = rect.left + (rect.width - toastRect.width) / 2;
+    const above = rect.top - toastRect.height - 10;
+    const y = above >= 6 ? above : rect.bottom + 10;
+    setToastPosition(toast, x, y);
+  }
+
+  function setToastPosition(toast, x, y) {
+    const maxX = Math.max(6, window.innerWidth - toast.getBoundingClientRect().width - 6);
+    const maxY = Math.max(6, window.innerHeight - toast.getBoundingClientRect().height - 6);
+    toast.style.left = `${Math.max(6, Math.min(maxX, x))}px`;
+    toast.style.top = `${Math.max(6, Math.min(maxY, y))}px`;
+    toast.style.bottom = 'auto';
+    toast.style.transform = 'none';
+  }
+
+  function removeToast() {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+    if (toastAnchorListeners) { toastAnchorListeners(); toastAnchorListeners = null; }
+    document.getElementById('promptpaste-toast')?.remove();
   }
 })();

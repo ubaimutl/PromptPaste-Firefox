@@ -4,7 +4,8 @@ Use AI on selected text in Firefox. Correct writing, rewrite text, run a selecti
 
 ## Features
 
-- **Multiple AI providers** — OpenAI, Anthropic, Ollama, and custom OpenAI-compatible endpoints
+- **Multiple AI providers** — Ollama, Groq, Gemini, OpenRouter, Cerebras, OpenAI, and Vercel AI Gateway
+- **Model discovery** — Refresh available models after configuring a provider, while still allowing manual model names
 - **Built-in actions** — Professional email, summarize, translate, explain simply (customizable)
 - **Custom actions** — Create your own prompts with variables and model settings
 - **Flexible UI** — Floating action dot on selection, context menu, toolbar button, keyboard shortcuts
@@ -19,13 +20,13 @@ _Link will be active once the add-on is approved by Mozilla._
 
 ## Usage
 
-1. Open **PromptPaste Settings** (toolbar button → gear icon)
-2. Choose a provider and enter your API key or Ollama URL
+1. Open **PromptPaste Settings** (toolbar button → Settings)
+2. Choose a provider and enter its API key; Ollama uses only its server URL and never needs an API key
 3. Select text on any webpage
 4. Click the action dot, use the context menu (PromptPaste submenu), or press the keyboard shortcut
 5. Choose an action → review the result → click **Replace** or **Copy**
 
-Disable the floating dot in **Settings → General → Page controls**.
+Disable the floating dot in **Settings → General → Page controls**. History is disabled by default for privacy; enable **Save history** when you want to review, copy, delete, or clear local results from the popup. **Status feedback** defaults to the bottom center, or can follow the selected text or mouse pointer.
 
 ## Supported Fields
 
@@ -37,5 +38,6 @@ Disable the floating dot in **Settings → General → Page controls**.
 
 - Text is sent **only when you explicitly choose an action**
 - API keys stored in Firefox's `storage.local` (encrypted at rest)
-- Ollama requests go to your configured local server only
+- Ollama requests go to your configured server only and do not use an API key
+- Firefox requests to local Ollama use a Page Assist-style Origin rewrite, so Ollama's default CORS policy accepts them without changing Firefox or Ollama settings
 - No telemetry, no background requests
