@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "PromptPaste",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Send selected text to your chosen AI provider to correct, rewrite, or transform it in Firefox.",
   "permissions": [
     "activeTab",
@@ -11,6 +11,8 @@
     "webRequest",
     "webRequestBlocking",
     "https://api.groq.com/*",
+    "https://api.cloudflare.com/*",
+    "https://api.b.ai/*",
     "https://generativelanguage.googleapis.com/*",
     "https://openrouter.ai/*",
     "https://api.cerebras.ai/*",
@@ -29,11 +31,15 @@
     "js": ["page-controller.js"],
     "run_at": "document_idle"
   }],
-  "icons": {"16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
+  "icons": {"16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "64": "icons/icon64.png", "96": "icons/icon96.png", "128": "icons/icon128.png"},
   "browser_action": {
     "default_title": "PromptPaste",
     "default_popup": "popup.html",
-    "default_icon": {"16": "icons/icon16.png", "32": "icons/icon32.png"}
+    "default_icon": {"16": "toolbar/for-light-theme/icon16.png", "32": "toolbar/for-light-theme/icon32.png"},
+    "theme_icons": [
+      {"light": "toolbar/for-dark-theme/icon16.png", "dark": "toolbar/for-light-theme/icon16.png", "size": 16},
+      {"light": "toolbar/for-dark-theme/icon32.png", "dark": "toolbar/for-light-theme/icon32.png", "size": 32}
+    ]
   },
   "options_page": "options.html",
   "commands": {

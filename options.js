@@ -86,8 +86,64 @@ function renderProviderFields() {
   const fields = document.createElement('div'); fields.className = 'fields two provider-config';
   fields.append(modelField(provider));
   if (provider === 'ollama') fields.append(field('Server URL', settings.ollamaUrl, false, value => { settings.ollamaUrl = value; queueSave(); }));
-  else fields.append(field('API key', settings.apiKeys[provider] || '', true, value => { settings.apiKeys[provider] = value; queueSave(); }));
+  else {
+    if (provider === 'cloudflare') {
+      fields.append(field('Account ID', settings.cloudflareAccountId || '', false, value => { settings.cloudflareAccountId = value.trim(); queueSave(); }));
+    }
+    fields.append(field(provider === 'cloudflare' ? 'API token' : 'API key', settings.apiKeys[provider] || '', true, value => { settings.apiKeys[provider] = value; queueSave(); }));
+  }
   root.append(fields);
+  if (provider === 'cloudflare') {
+    root.append(
+      reasoningOption(),
+      providerNotice('ⓘ', 'Free usage', 'Free tier includes 10,000 Neurons per day.'),
+    );
+  }
+  root.append(providerNotice(
+    '⚠',
+    provider === 'ollama' ? 'Model resource usage' : 'Model usage and cost',
+    provider === 'ollama'
+      ? 'Larger models may require more memory, processing power, and response time on your device.'
+      : 'Larger models may use provider allowances faster or incur charges, depending on your account.',
+    true,
+  ));
+}
+
+function reasoningOption() {
+  const label = document.createElement('label');
+  label.className = 'check-row provider-reasoning';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = settings.cloudflareReasoningEnabled === true;
+  input.addEventListener('change', () => {
+    settings.cloudflareReasoningEnabled = input.checked;
+    queueSave();
+  });
+  const copy = document.createElement('span');
+  const title = document.createElement('strong');
+  title.textContent = 'Enable Qwen reasoning';
+  const description = document.createElement('small');
+  description.textContent = 'Optional for supported Qwen 3 models. Leave off for faster, lower-usage text transformations.';
+  copy.append(title, description);
+  label.append(input, copy);
+  return label;
+}
+
+function providerNotice(symbol, titleText, descriptionText, warning = false) {
+  const row = document.createElement('div');
+  row.className = `provider-notice${warning ? ' warning' : ''}`;
+  const icon = document.createElement('span');
+  icon.className = 'provider-notice-icon';
+  icon.textContent = symbol;
+  icon.setAttribute('aria-hidden', 'true');
+  const copy = document.createElement('span');
+  const title = document.createElement('strong');
+  title.textContent = titleText;
+  const description = document.createElement('small');
+  description.textContent = descriptionText;
+  copy.append(title, description);
+  row.append(icon, copy);
+  return row;
 }
 
 function modelField(provider) {
@@ -123,7 +179,11 @@ function modelField(provider) {
   status.className = 'model-status';
   status.textContent = modelCache.has(provider)
     ? `${models.length} models loaded`
-    : provider === 'ollama' ? 'Click Refresh to load installed models.' : 'Add your API key, then click Refresh.';
+    : provider === 'ollama'
+      ? 'Click Refresh to load installed models.'
+      : provider === 'cloudflare'
+        ? 'Add your API token and Account ID, then click Refresh.'
+        : 'Add your API key, then click Refresh.';
   refresh.addEventListener('click', () => refreshModelList(provider, input, select, status, refresh));
   controls.append(select, input, refresh);
   label.append(controls, status);
@@ -181,9 +241,23 @@ async function fetchProviderModels(provider) {
   }
 
   const key = settings.apiKeys[provider];
-  if (!key) throw new Error(`Add your ${providerName} API key first.`);
+  if (!key) throw new Error(provider === 'cloudflare'
+    ? 'Add your Cloudflare Workers AI API token first.'
+    : `Add your ${providerName} API key first.`);
+  if (provider === 'cloudflare') {
+    const accountId = String(settings.cloudflareAccountId || '').trim();
+    if (!accountId) throw new Error('Add your Cloudflare Account ID first.');
+    data = await fetchModelJson(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/models/search?task=${encodeURIComponent('Text Generation')}&hide_experimental=true&per_page=100`,
+      {Authorization: `Bearer ${key}`}, providerName, provider);
+    return uniqueModels((Array.isArray(data.result) ? data.result : []).map(model => ({
+      id: model.name || model.id,
+      name: model.name || model.id,
+    })));
+  }
   const endpoints = {
     groq: 'https://api.groq.com/openai/v1/models',
+    bai: 'https://api.b.ai/v1/models',
     gemini: `https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${encodeURIComponent(key)}`,
     openrouter: 'https://openrouter.ai/api/v1/models?output_modalities=text',
     cerebras: 'https://api.cerebras.ai/v1/models',
@@ -191,13 +265,14 @@ async function fetchProviderModels(provider) {
     vercel: 'https://ai-gateway.vercel.sh/v1/models',
   };
   const headers = provider === 'gemini' ? {} : {Authorization: `Bearer ${key}`};
-  data = await fetchModelJson(endpoints[provider], headers, providerName);
+  data = await fetchModelJson(endpoints[provider], headers, providerName, provider);
   if (provider === 'gemini') {
     return uniqueModels((data.models || [])
       .filter(model => model.supportedGenerationMethods?.includes('generateContent'))
       .map(model => ({id: model.name?.replace(/^models\//, ''), name: model.displayName || model.name})));
   }
   let models = (data.data || [])
+    .filter(model => provider !== 'bai' || !model.supported_endpoint_types || model.supported_endpoint_types.includes('openai'))
     .filter(model => model.type ? model.type === 'language' : true)
     .map(model => ({id: model.id, name: model.name || model.id}));
   if (provider === 'openai') {
@@ -208,7 +283,7 @@ async function fetchProviderModels(provider) {
   return uniqueModels(models);
 }
 
-async function fetchModelJson(url, headers, providerName) {
+async function fetchModelJson(url, headers, providerName, provider = '') {
   let response;
   try {
     response = await fetch(url, {headers, signal: AbortSignal.timeout(20000)});
@@ -220,7 +295,9 @@ async function fetchModelJson(url, headers, providerName) {
   if (response.ok) return data;
   const providerError = data?.error?.message || data?.error;
   const detail = typeof providerError === 'string' ? providerError : '';
-  if (response.status === 401 || response.status === 403) throw new Error(`${providerName} rejected the API key. Check it and try again.`);
+  if (response.status === 401 || response.status === 403) throw new Error(provider === 'cloudflare'
+    ? 'Cloudflare rejected the API token or Account ID. Check them and try again.'
+    : `${providerName} rejected the API key. Check it and try again.`);
   if (response.status === 404) throw new Error(`${providerName} model list is unavailable.`);
   if (response.status === 429) throw new Error(`${providerName} rate limit reached. Try again later.`);
   throw new Error(detail || `${providerName} rejected the request (${response.status}).`);

@@ -1,6 +1,8 @@
 export const PROVIDERS = [
   {id: 'ollama', name: 'Ollama (local)'},
   {id: 'groq', name: 'Groq'},
+  {id: 'cloudflare', name: 'Cloudflare Workers AI'},
+  {id: 'bai', name: 'B.AI'},
   {id: 'gemini', name: 'Gemini'},
   {id: 'openrouter', name: 'OpenRouter'},
   {id: 'cerebras', name: 'Cerebras'},
@@ -38,8 +40,11 @@ export const DEFAULT_ACTIONS = [
 export const DEFAULTS = {
   provider: 'groq',
   ollamaUrl: 'http://127.0.0.1:11434',
+  cloudflareAccountId: '',
+  cloudflareReasoningEnabled: false,
   models: {
     ollama: 'qwen2.5-coder:1.5b', groq: 'openai/gpt-oss-20b',
+    cloudflare: '@cf/qwen/qwen3-30b-a3b-fp8', bai: 'deepseek-v4-flash',
     gemini: 'gemini-3.5-flash-lite', openrouter: 'openrouter/free',
     cerebras: 'gpt-oss-120b', openai: 'gpt-4.1-mini',
     vercel: 'openai/gpt-5.4-mini',

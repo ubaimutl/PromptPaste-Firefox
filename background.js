@@ -1,7 +1,7 @@
 import {DEFAULTS, DEFAULT_ACTIONS, enabledActions, getSettings} from './shared.js';
 
 const PROVIDER_NAMES = {
-  ollama: 'Ollama', groq: 'Groq', gemini: 'Gemini', openrouter: 'OpenRouter',
+  ollama: 'Ollama', groq: 'Groq', cloudflare: 'Cloudflare Workers AI', bai: 'B.AI', gemini: 'Gemini', openrouter: 'OpenRouter',
   cerebras: 'Cerebras', openai: 'OpenAI', vercel: 'Vercel AI Gateway',
 };
 
@@ -316,6 +316,9 @@ function estimateTokens(text) { return Math.ceil(text.length / 4); }
 function maxTokens(text, value = 0) { return positiveInt(value) || Math.min(2000, Math.max(220, estimateTokens(text) + 180)); }
 function positiveInt(value) { return Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : 0; }
 function payload(text) { return `Transform only the text inside the tags.\nReturn only the transformed text.\n<text>\n${text}\n</text>`; }
+function isCloudflareQwenReasoningModel(provider, model) {
+  return provider === 'cloudflare' && /^@cf\/qwen\/qwen3(?:[.-]|$)/.test(model || '');
+}
 
 function expandPrompt(prompt, text, variables) {
   const values = {...variables, selection: text};
@@ -346,6 +349,11 @@ async function requestJson(url, headers, body, provider, model) {
   let data = {};
   try { data = await response.json(); } catch { /* handled below */ }
   if (!response.ok) {
+    const directError = data?.error?.message || data?.error;
+    const errors = Array.isArray(data?.errors)
+      ? data.errors.map(item => item?.message || item).filter(item => typeof item === 'string').join(' ')
+      : '';
+    const detail = typeof directError === 'string' ? directError : errors;
     if (provider === 'ollama' && (response.status === 401 || response.status === 403)) {
       try {
         const headersList = [...response.headers.entries()].map(([key, value]) => `${key}: ${value}`).join(' | ');
@@ -356,7 +364,6 @@ async function requestJson(url, headers, body, provider, model) {
     }
     if (response.status === 401 || response.status === 403) {
       if (provider === 'ollama') {
-        const detail = typeof data?.error?.message === 'string' ? data.error.message : (typeof data?.error === 'string' ? data.error : '');
         const server = response.headers.get('server') || response.headers.get('via') || '';
         const isOllamaCors = !server && !detail && !response.headers.get('content-type');
         if (isOllamaCors) {
@@ -369,12 +376,15 @@ async function requestJson(url, headers, body, provider, model) {
         }
         throw new Error(`Ollama request was rejected with a ${response.status} (to ${url}).${server ? ` The response is from “${server}”, not from Ollama itself.` : ''}${detail ? ` ${detail}` : ''} A proxy, firewall, or another service is answering for that address — verify nothing else listens on port 11434 and that 127.0.0.1 and localhost are in your proxy's “No proxy for” list.`);
       }
-      throw new Error(`${PROVIDER_NAMES[provider]} rejected the API key. Check it in Settings.`);
+      throw new Error(provider === 'cloudflare'
+        ? 'Cloudflare rejected the API token or Account ID. Check them in Settings.'
+        : `${PROVIDER_NAMES[provider]} rejected the API key. Check it in Settings.`);
     }
-    if (response.status === 404) throw new Error(`${PROVIDER_NAMES[provider]} could not find model “${model}”.`);
+    if (response.status === 404) throw new Error(provider === 'cloudflare'
+      ? `Cloudflare could not find the account or model “${model}”.`
+      : `${PROVIDER_NAMES[provider]} could not find model “${model}”.`);
     if (response.status === 429) throw new Error(`${PROVIDER_NAMES[provider]} rate limit reached. Wait and try again.`);
-    const detail = data?.error?.message || data?.error;
-    throw new Error(typeof detail === 'string' ? detail : `${PROVIDER_NAMES[provider]} rejected the request (${response.status}).`);
+    throw new Error(detail || `${PROVIDER_NAMES[provider]} rejected the request (${response.status}).`);
   }
   return data;
 }
@@ -388,7 +398,13 @@ async function transform(text, action, settings) {
   const prompt = expandPrompt(action.prompt, text, settings.variables);
   const userText = action.inputMode === 'prompt' ? text : payload(text);
   const messages = [...(prompt.trim() ? [{role: 'system', content: prompt}] : []), {role: 'user', content: userText}];
-  const limit = maxTokens(text, positiveInt(action.outputLimit) || (action.inputMode === 'prompt' ? 2000 : 0));
+  const requestedOutputLimit = positiveInt(action.outputLimit);
+  let limit = maxTokens(text, requestedOutputLimit || (action.inputMode === 'prompt' ? 2000 : 0));
+  const cloudflareReasoningModel = isCloudflareQwenReasoningModel(provider, model);
+  const cloudflareReasoningEnabled = cloudflareReasoningModel && settings.cloudflareReasoningEnabled === true;
+  // Reasoning tokens count against the output ceiling. Preserve explicit limits while
+  // giving enabled reasoning enough automatic headroom to reach the visible response.
+  if (cloudflareReasoningEnabled && !requestedOutputLimit) limit = Math.max(limit, 600);
   let data;
   if (provider === 'ollama') {
     const ollamaUrl = normaliseOllamaUrl(settings.ollamaUrl);
@@ -398,7 +414,9 @@ async function transform(text, action, settings) {
     return cleanOutput(data.message.content, action.inputMode);
   }
   const key = settings.apiKeys[provider];
-  if (!key) throw new Error(`Add a ${PROVIDER_NAMES[provider]} API key in Settings.`);
+  if (!key) throw new Error(provider === 'cloudflare'
+    ? 'Add a Cloudflare Workers AI API token in Settings.'
+    : `Add a ${PROVIDER_NAMES[provider]} API key in Settings.`);
   if (provider === 'gemini') {
     const body = {contents: [{role: 'user', parts: [{text: userText}]}], generationConfig: {maxOutputTokens: limit}};
     if (prompt.trim()) body.systemInstruction = {parts: [{text: prompt}]};
@@ -408,12 +426,35 @@ async function transform(text, action, settings) {
     if (!output) throw new Error('Gemini returned an empty response.');
     return cleanOutput(output, action.inputMode);
   }
-  const urls = {groq: 'https://api.groq.com/openai/v1/chat/completions', openrouter: 'https://openrouter.ai/api/v1/chat/completions', cerebras: 'https://api.cerebras.ai/v1/chat/completions', openai: 'https://api.openai.com/v1/chat/completions', vercel: 'https://ai-gateway.vercel.sh/v1/chat/completions'};
+  let cloudflareAccountId = '';
+  if (provider === 'cloudflare') {
+    cloudflareAccountId = String(settings.cloudflareAccountId || '').trim();
+    if (!cloudflareAccountId) throw new Error('Add your Cloudflare Account ID in Settings.');
+  }
+  const urls = {
+    groq: 'https://api.groq.com/openai/v1/chat/completions',
+    cloudflare: `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(cloudflareAccountId)}/ai/v1/chat/completions`,
+    bai: 'https://api.b.ai/v1/chat/completions',
+    openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+    cerebras: 'https://api.cerebras.ai/v1/chat/completions',
+    openai: 'https://api.openai.com/v1/chat/completions',
+    vercel: 'https://ai-gateway.vercel.sh/v1/chat/completions',
+  };
   const body = {model, messages, [provider === 'cerebras' ? 'max_completion_tokens' : 'max_tokens']: limit};
+  if (cloudflareReasoningModel) body.chat_template_kwargs = {enable_thinking: cloudflareReasoningEnabled};
   if (provider === 'groq' && model.startsWith('openai/gpt-oss-')) Object.assign(body, {reasoning_effort: 'low', include_reasoning: false});
-  data = await requestJson(urls[provider], {Authorization: `Bearer ${key}`, ...(provider === 'openrouter' ? {'X-Title': 'PromptPaste'} : {})}, body, provider, model);
+  data = await requestJson(urls[provider], {
+    Authorization: `Bearer ${key}`,
+    ...(provider === 'cloudflare' ? {'cf-aig-gateway-id': 'default'} : {}),
+    ...(provider === 'openrouter' ? {'X-Title': 'PromptPaste'} : {}),
+  }, body, provider, model);
   if (data.choices?.[0]?.finish_reason === 'length') throw new Error('Response reached the output limit. Increase the limit or select less text.');
-  const output = data.choices?.[0]?.message?.content;
+  const message = data.choices?.[0]?.message;
+  // Cloudflare currently places Qwen's non-thinking final text in the reasoning
+  // compatibility field. Use it only when reasoning was explicitly disabled.
+  const output = message?.content || (!cloudflareReasoningEnabled && cloudflareReasoningModel
+    ? message?.reasoning_content || message?.reasoning
+    : '');
   if (!output) throw new Error(`${PROVIDER_NAMES[provider]} returned an empty response.`);
   return cleanOutput(output, action.inputMode);
 }

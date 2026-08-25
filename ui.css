@@ -437,6 +437,37 @@ p {
 .provider-config {
     margin-top: 16px;
 }
+.provider-reasoning {
+    margin-top: 16px;
+    padding: 12px 0;
+    border-top: 1px solid var(--border);
+}
+.provider-reasoning span,
+.provider-notice > span:last-child {
+    display: flex;
+    flex-direction: column;
+}
+.provider-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 12px 0;
+    border-top: 1px solid var(--border);
+}
+.provider-notice-icon {
+    flex: 0 0 20px;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.25;
+    text-align: center;
+}
+.provider-notice.warning .provider-notice-icon {
+    color: #b78500;
+}
+.provider-notice small {
+    margin-top: 2px;
+    color: var(--muted);
+}
 .model-picker {
     display: flex;
     align-items: center;
@@ -456,6 +487,7 @@ p {
 }
 .model-status {
     min-height: 1.45em;
+    margin-bottom: 6px;
     color: var(--muted);
     font-weight: 400;
 }
