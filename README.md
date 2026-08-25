@@ -15,9 +15,16 @@ Use AI on selected text in Firefox. Correct writing, rewrite text, run a selecti
 
 ## Install
 
-[![Get it on Firefox Add-ons](https://img.shields.io/badge/Firefox_Add-ons-Install-orange?logo=firefox-browser)](https://addons.mozilla.org/firefox/addon/promptpaste/)
-
-_Link will be active once the add-on is approved by Mozilla._
+<div >
+  <a href="https://addons.mozilla.org/firefox/addon/promptpaste/">
+    <img src="https://blog.mozilla.org/addons/files/2020/04/get-the-addon-fx-apr-2020.svg" alt="Get the Add-on" height="60" />
+  </a>
+  <br>
+  <a href="https://addons.mozilla.org/firefox/addon/promptpaste/">
+    <img src="https://img.shields.io/amo/v/promptpaste?style=flat-square&color=orange" alt="Version" />
+    <img src="https://img.shields.io/amo/users/promptpaste?style=flat-square&color=blue" alt="Users" />
+  </a>
+</div>
 
 ## Usage
 
